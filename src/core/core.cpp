@@ -106,7 +106,11 @@ FileSys::VirtualFile GetGameFileFromPath(const FileSys::VirtualFilesystem& vfs,
     }
 
     if (Common::FS::IsDir(path)) {
-        return vfs->OpenFile(path + "/main", FileSys::OpenMode::Read);
+        auto file = vfs->OpenFile(path + "/main", FileSys::OpenMode::Read);
+        if (!file) {
+            file = vfs->OpenFile(path + "/exefs/main", FileSys::OpenMode::Read);
+        }
+        return file;
     }
 
     return vfs->OpenFile(path, FileSys::OpenMode::Read);

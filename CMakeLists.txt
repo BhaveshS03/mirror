@@ -94,6 +94,11 @@ cmake_dependent_option(ENABLE_LSFG "Enable Lossless Scaling frame generation" ON
 
 option(ENABLE_RESHADE "Enable ReShade FX post-processing effects" ON)
 
+# Profile-guided optimization
+option(ENABLE_PGO_GENERATE "Enable PGO instrumentation generation" OFF)
+option(ENABLE_PGO_USE "Enable PGO profile-guided optimization" OFF)
+set(PGO_PROFILE_FILE "" CACHE FILEPATH "Path to LLVM/Clang .profdata file for PGO")
+
 # non-linux bundled qt are static
 if (YUZU_USE_BUNDLED_QT AND (APPLE OR NOT UNIX))
     set(YUZU_STATIC_BUILD ON)
@@ -221,6 +226,38 @@ if(MSVC)
         $<$<COMPILE_LANGUAGE:C,CXX>:$<$<CONFIG:Release>:/${libflag}>>
         $<$<COMPILE_LANGUAGE:C,CXX>:$<$<CONFIG:RelWithDebInfo>:/${libflag}>>
         $<$<COMPILE_LANGUAGE:C,CXX>:$<$<CONFIG:MinSizeRel>:/${libflag}>>)
+endif()
+
+# Profile-guided optimization flags
+if (ENABLE_PGO_GENERATE)
+    message(STATUS "PGO: Instrumentation generation enabled")
+    if (MSVC AND NOT CXX_CLANG)
+        add_compile_options(/GL)
+        add_link_options(/LTCG:PGINSTRUMENT)
+    else()
+        add_compile_options(-fprofile-generate)
+        add_link_options(-fprofile-generate)
+    endif()
+elseif (ENABLE_PGO_USE)
+    if (PGO_PROFILE_FILE)
+        message(STATUS "PGO: Profile optimization enabled using ${PGO_PROFILE_FILE}")
+        if (MSVC AND NOT CXX_CLANG)
+            add_compile_options(/GL)
+            add_link_options(/LTCG:PGOPTIMIZE)
+        else()
+            add_compile_options(-fprofile-use=${PGO_PROFILE_FILE} -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date)
+            add_link_options(-fprofile-use=${PGO_PROFILE_FILE})
+        endif()
+    else()
+        message(STATUS "PGO: Profile optimization enabled")
+        if (MSVC AND NOT CXX_CLANG)
+            add_compile_options(/GL)
+            add_link_options(/LTCG:PGOPTIMIZE)
+        else()
+            add_compile_options(-fprofile-use -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date)
+            add_link_options(-fprofile-use)
+        endif()
+    endif()
 endif()
 
 # TODO(crueter): Cleanup, each dep that has a bundled option should allow to choose between bundled, external, system

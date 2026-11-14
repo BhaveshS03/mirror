@@ -412,6 +412,15 @@
     <string name="share_gpu_log_missing">No GPU log file found</string>
     <string name="install_game_content">Install game content</string>
     <string name="install_game_content_description">Install game updates or DLC</string>
+    <string name="import_rom_folder">Import game folder</string>
+    <string name="import_rom_folder_description">Import a folder containing loose romfs and exefs</string>
+    <string name="importing_rom_folder">Importing game folder…</string>
+    <string name="import_rom_folder_success">Game folder imported successfully</string>
+    <string name="import_rom_folder_error">The selected folder does not contain a valid Switch game structure (missing \'main\'/\'main.npdm\' or \'exefs\' and \'romfs\').</string>
+    <string name="delete_imported_game">Delete imported game</string>
+    <string name="delete_imported_game_description">Delete this game and its imported files from internal storage</string>
+    <string name="delete_imported_game_confirmation">Are you sure you want to delete \"%1$s\"? This cannot be undone.</string>
+    <string name="game_deleted_success">Game deleted successfully</string>
     <string name="installing_game_content">Installing content…</string>
     <string name="install_game_content_failure">Error installing file(s) to NAND</string>
     <string name="install_game_content_failure_description">Please ensure content(s) are valid and that the prod.keys file is installed.</string>

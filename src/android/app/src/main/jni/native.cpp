@@ -220,7 +220,7 @@ void EmulationSession::SurfaceChanged() {
 }
 
 void EmulationSession::ConfigureFilesystemProvider(const std::string& filepath) {
-    const auto file = m_system.GetFilesystem()->OpenFile(filepath, FileSys::OpenMode::Read);
+    const auto file = Core::GetGameFileFromPath(m_system.GetFilesystem(), filepath);
     if (!file) {
         return;
     }

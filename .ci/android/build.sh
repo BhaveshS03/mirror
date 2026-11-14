@@ -30,6 +30,8 @@ Options:
                           	Valid values are: Release, RelWithDebInfo, Debug
                           	Default: Debug
     -n, --nightly           Create a nightly build.
+    -p, --pgo-profile <PATH> Enable PGO build using specified .profdata profile file.
+    --pgo-generate          Create a PGO instrumentation build to gather profile data.
 
 Extra arguments are passed to CMake (e.g. -DCMAKE_OPTION_NAME=VALUE)
 Set the CCACHE variable to "true" to enable build caching.
@@ -63,6 +65,8 @@ while true; do
 		-t|--target) target "$2"; shift ;;
 		-b|--build-type) type "$2"; shift ;;
         -n|--nightly) NIGHTLY=true ;;
+		-p|--pgo-profile) PGO_PROFILE="$2"; shift ;;
+		--pgo-generate) PGO_GENERATE=true ;;
 		-h|--help) usage ;;
 		*) break ;;
 	esac
@@ -103,6 +107,12 @@ cd src/android
 chmod +x ./gradlew
 
 set -- "$@" -DUSE_CCACHE="${CCACHE}"
+
+if [ -n "$PGO_PROFILE" ]; then
+    set -- "$@" -DENABLE_PGO_USE=ON -DPGO_PROFILE_FILE="$PGO_PROFILE"
+elif [ "$PGO_GENERATE" = "true" ]; then
+    set -- "$@" -DENABLE_PGO_GENERATE=ON
+fi
 
 nightly() {
     [ "$NIGHTLY" = "true" ]

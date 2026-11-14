@@ -12,6 +12,7 @@
 #include "core/file_sys/content_archive.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/patch_manager.h"
+#include "core/file_sys/romfs.h"
 #include "core/file_sys/romfs_factory.h"
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_process.h"
@@ -71,68 +72,164 @@ struct PatchCollection {
     std::array<s32, 13> module_patcher_indices{};
 };
 
-AppLoader_DeconstructedRomDirectory::AppLoader_DeconstructedRomDirectory(FileSys::VirtualFile file_, bool override_update_)
-    : AppLoader(std::move(file_))
-    , override_update(override_update_)
-{
-    const auto file_dir = file->GetContainingDirectory();
+void AppLoader_DeconstructedRomDirectory::Initialize() {
+    if (!dir) {
+        return;
+    }
 
     // Title ID
-    const auto npdm = file_dir->GetFile("main.npdm");
+    auto npdm = dir->GetFile("main.npdm");
+    if (!npdm && dir->GetParentDirectory()) {
+        npdm = dir->GetParentDirectory()->GetFile("main.npdm");
+    }
     if (npdm != nullptr) {
         const auto res = metadata.Load(npdm);
-        if (res == ResultStatus::Success)
+        if (res == ResultStatus::Success) {
             title_id = metadata.GetTitleID();
+        }
     }
 
     // Icon
     FileSys::VirtualFile icon_file = nullptr;
     for (const auto& language : FileSys::LANGUAGE_NAMES) {
-        icon_file = file_dir->GetFile("icon_" + std::string(language) + ".dat");
+        icon_file = dir->GetFile("icon_" + std::string(language) + ".dat");
         if (icon_file != nullptr) {
             icon_data = icon_file->ReadAllBytes();
             break;
         }
     }
 
+    if (icon_data.empty() && dir->GetParentDirectory()) {
+        for (const auto& language : FileSys::LANGUAGE_NAMES) {
+            icon_file = dir->GetParentDirectory()->GetFile("icon_" + std::string(language) + ".dat");
+            if (icon_file != nullptr) {
+                icon_data = icon_file->ReadAllBytes();
+                break;
+            }
+        }
+    }
+
     if (icon_data.empty()) {
         // Any png, jpeg, or bmp file
-        const auto& files = file_dir->GetFiles();
-        const auto icon_iter =
+        const auto& files = dir->GetFiles();
+        auto icon_iter =
             std::find_if(files.begin(), files.end(), [](const FileSys::VirtualFile& f) {
                 return f->GetExtension() == "png" || f->GetExtension() == "jpg" ||
                        f->GetExtension() == "bmp" || f->GetExtension() == "jpeg";
             });
-        if (icon_iter != files.end())
+        if (icon_iter != files.end()) {
             icon_data = (*icon_iter)->ReadAllBytes();
+        } else if (dir->GetParentDirectory()) {
+            const auto& pfiles = dir->GetParentDirectory()->GetFiles();
+            auto picon_iter =
+                std::find_if(pfiles.begin(), pfiles.end(), [](const FileSys::VirtualFile& f) {
+                    return f->GetExtension() == "png" || f->GetExtension() == "jpg" ||
+                           f->GetExtension() == "bmp" || f->GetExtension() == "jpeg";
+                });
+            if (picon_iter != pfiles.end()) {
+                icon_data = (*picon_iter)->ReadAllBytes();
+            }
+        }
     }
 
     // Metadata
-    FileSys::VirtualFile nacp_file = file_dir->GetFile("control.nacp");
+    FileSys::VirtualFile nacp_file = dir->GetFile("control.nacp");
+    if (nacp_file == nullptr && dir->GetParentDirectory()) {
+        nacp_file = dir->GetParentDirectory()->GetFile("control.nacp");
+    }
     if (nacp_file == nullptr) {
-        const auto& files = file_dir->GetFiles();
-        const auto nacp_iter =
+        const auto& files = dir->GetFiles();
+        auto nacp_iter =
             std::find_if(files.begin(), files.end(),
                          [](const FileSys::VirtualFile& f) { return f->GetExtension() == "nacp"; });
-        if (nacp_iter != files.end())
+        if (nacp_iter != files.end()) {
             nacp_file = *nacp_iter;
+        } else if (dir->GetParentDirectory()) {
+            const auto& pfiles = dir->GetParentDirectory()->GetFiles();
+            auto pnacp_iter =
+                std::find_if(pfiles.begin(), pfiles.end(),
+                             [](const FileSys::VirtualFile& f) { return f->GetExtension() == "nacp"; });
+            if (pnacp_iter != pfiles.end()) {
+                nacp_file = *pnacp_iter;
+            }
+        }
     }
 
     if (nacp_file != nullptr) {
         FileSys::NACP nacp(nacp_file);
         name = nacp.GetApplicationName();
     }
+
+    if (name.empty()) {
+        if (dir->GetName() == "exefs" && dir->GetParentDirectory()) {
+            name = dir->GetParentDirectory()->GetName();
+        } else {
+            name = dir->GetName();
+        }
+    }
+
+    // RomFS
+    auto romfs_dir = dir->GetSubdirectory("romfs");
+    if (!romfs_dir && dir->GetParentDirectory()) {
+        romfs_dir = dir->GetParentDirectory()->GetSubdirectory("romfs");
+    }
+    if (romfs_dir != nullptr) {
+        romfs = FileSys::CreateRomFS(romfs_dir);
+    }
+
+    if (romfs == nullptr) {
+        auto romfs_file = dir->GetFile("romfs.bin");
+        if (!romfs_file && dir->GetParentDirectory()) {
+            romfs_file = dir->GetParentDirectory()->GetFile("romfs.bin");
+        }
+        if (!romfs_file) {
+            const auto& files = dir->GetFiles();
+            auto romfs_iter = std::find_if(files.begin(), files.end(), [](const FileSys::VirtualFile& f) {
+                return f->GetExtension() == "romfs";
+            });
+            if (romfs_iter != files.end()) {
+                romfs_file = *romfs_iter;
+            } else if (dir->GetParentDirectory()) {
+                const auto& pfiles = dir->GetParentDirectory()->GetFiles();
+                auto promfs_iter = std::find_if(pfiles.begin(), pfiles.end(), [](const FileSys::VirtualFile& f) {
+                    return f->GetExtension() == "romfs";
+                });
+                if (promfs_iter != pfiles.end()) {
+                    romfs_file = *promfs_iter;
+                }
+            }
+        }
+        if (romfs_file != nullptr) {
+            romfs = romfs_file;
+        }
+    }
+}
+
+AppLoader_DeconstructedRomDirectory::AppLoader_DeconstructedRomDirectory(FileSys::VirtualFile file_, bool override_update_)
+    : AppLoader(std::move(file_))
+    , override_update(override_update_)
+{
+    if (file) {
+        dir = file->GetContainingDirectory();
+    }
+    Initialize();
 }
 
 AppLoader_DeconstructedRomDirectory::AppLoader_DeconstructedRomDirectory(
     FileSys::VirtualDir directory, bool override_update_)
-    : AppLoader(directory->GetFile("main"))
+    : AppLoader(directory ? directory->GetFile("main") : nullptr)
     , dir(std::move(directory))
     , override_update(override_update_)
-{}
+{
+    Initialize();
+}
 
 FileType AppLoader_DeconstructedRomDirectory::IdentifyType(const FileSys::VirtualFile& dir_file) {
-    if (FileSys::IsDirectoryExeFS(dir_file->GetContainingDirectory())) {
+    if (!dir_file) {
+        return FileType::Error;
+    }
+    const auto dir = dir_file->GetContainingDirectory();
+    if (dir && FileSys::IsDirectoryExeFS(dir)) {
         return FileType::DeconstructedRomDirectory;
     }
 
@@ -303,8 +400,37 @@ ResultStatus AppLoader_DeconstructedRomDirectory::ReadTitle(std::string& out_tit
     return ResultStatus::Success;
 }
 
+ResultStatus AppLoader_DeconstructedRomDirectory::ReadControlData(FileSys::NACP& control) {
+    FileSys::VirtualFile nacp_file = dir ? dir->GetFile("control.nacp") : nullptr;
+    if (nacp_file == nullptr && dir && dir->GetParentDirectory()) {
+        nacp_file = dir->GetParentDirectory()->GetFile("control.nacp");
+    }
+    if (nacp_file == nullptr && dir) {
+        const auto& files = dir->GetFiles();
+        auto nacp_iter = std::find_if(files.begin(), files.end(), [](const FileSys::VirtualFile& f) {
+            return f->GetExtension() == "nacp";
+        });
+        if (nacp_iter != files.end()) {
+            nacp_file = *nacp_iter;
+        } else if (dir->GetParentDirectory()) {
+            const auto& pfiles = dir->GetParentDirectory()->GetFiles();
+            auto pnacp_iter = std::find_if(pfiles.begin(), pfiles.end(), [](const FileSys::VirtualFile& f) {
+                return f->GetExtension() == "nacp";
+            });
+            if (pnacp_iter != pfiles.end()) {
+                nacp_file = *pnacp_iter;
+            }
+        }
+    }
+    if (nacp_file != nullptr) {
+        control = FileSys::NACP(nacp_file);
+        return ResultStatus::Success;
+    }
+    return ResultStatus::ErrorNoControl;
+}
+
 bool AppLoader_DeconstructedRomDirectory::IsRomFSUpdatable() const {
-    return false;
+    return romfs != nullptr;
 }
 
 ResultStatus AppLoader_DeconstructedRomDirectory::ReadNSOModules(Modules& out_modules) {

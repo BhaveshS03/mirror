@@ -75,8 +75,9 @@ static RomMetadata GetRomMetadata(const std::string& path, bool reload = false) 
 extern "C" {
 
 jboolean Java_org_yuzu_yuzu_1emu_utils_GameMetadata_getIsValid(JNIEnv* env, jobject obj, jstring jpath) {
-    if (auto const file = EmulationSession::GetInstance().System().GetFilesystem()->OpenFile(Common::Android::GetJString(env, jpath), FileSys::OpenMode::Read); file) {
-        if (auto loader = Loader::GetLoader(EmulationSession::GetInstance().System(), file); loader) {
+    auto& instance = EmulationSession::GetInstance();
+    if (auto const file = Core::GetGameFileFromPath(instance.System().GetFilesystem(), Common::Android::GetJString(env, jpath)); file) {
+        if (auto loader = Loader::GetLoader(instance.System(), file); loader) {
             auto const file_type = loader->GetFileType();
             if (file_type == Loader::FileType::Unknown || file_type == Loader::FileType::Error)
                 return false;

@@ -55,11 +55,22 @@ object GameHelper {
         val mountedContainerUris = mutableSetOf<String>()
         mountExternalContentDirectories(mountedContainerUris)
 
+        val localGamesDir = DirectoryInitialization.userDirectory?.let { File(it, "games") }
+        if (localGamesDir != null && localGamesDir.exists() && localGamesDir.isDirectory) {
+            scanLocalGameDirectory(localGamesDir, games, gamesByProgramId)
+        }
+
         val badDirs = mutableListOf<Int>()
         gameDirs.forEachIndexed { index: Int, gameDir: GameDir ->
             val gameDirUri = gameDir.uriString.toUri()
-            val isValid = FileUtil.isTreeUriValid(gameDirUri)
-            if (isValid) {
+            val localDir = if (gameDirUri.scheme == "file") {
+                File(gameDirUri.path ?: "")
+            } else {
+                File(gameDir.uriString)
+            }
+            if (localDir.exists() && localDir.isDirectory) {
+                scanLocalGameDirectory(localDir, games, gamesByProgramId)
+            } else if (FileUtil.isTreeUriValid(gameDirUri)) {
                 val scanDepth = if (gameDir.deepScan) 3 else 1
 
                 addGamesRecursive(
@@ -255,12 +266,77 @@ object GameHelper {
         }
     }
 
+    private fun scanLocalGameDirectory(
+        directory: File,
+        games: MutableList<Game>,
+        gamesByProgramId: MutableMap<String, Game>
+    ) {
+        if (!directory.exists() || !directory.isDirectory) {
+            return
+        }
+
+        val entries = directory.listFiles() ?: return
+        for (entry in entries) {
+            if (entry.isDirectory) {
+                val mainFile = when {
+                    File(entry, "main").exists() -> File(entry, "main")
+                    File(entry, "exefs/main").exists() -> File(entry, "exefs/main")
+                    else -> null
+                }
+                if (mainFile != null) {
+                    val game = getGame(Uri.fromFile(mainFile), addedToLibrary = true, registerFilesystemProvider = false)
+                    if (game != null) {
+                        games.add(game)
+                        if (game.programId != "0") {
+                            gamesByProgramId[game.programId] = game
+                        }
+                    }
+                } else {
+                    val subEntries = entry.listFiles() ?: continue
+                    for (subEntry in subEntries) {
+                        if (subEntry.isDirectory) {
+                            val subMain = when {
+                                File(subEntry, "main").exists() -> File(subEntry, "main")
+                                File(subEntry, "exefs/main").exists() -> File(subEntry, "exefs/main")
+                                else -> null
+                            }
+                            if (subMain != null) {
+                                val game = getGame(Uri.fromFile(subMain), addedToLibrary = true, registerFilesystemProvider = false)
+                                if (game != null) {
+                                    games.add(game)
+                                    if (game.programId != "0") {
+                                        gamesByProgramId[game.programId] = game
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                val extension = entry.extension.lowercase()
+                if (Game.extensions.contains(extension)) {
+                    val game = getGame(Uri.fromFile(entry), addedToLibrary = true, registerFilesystemProvider = false)
+                    if (game != null) {
+                        games.add(game)
+                        if (game.programId != "0") {
+                            gamesByProgramId[game.programId] = game
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fun getGame(
         uri: Uri,
         addedToLibrary: Boolean,
         registerFilesystemProvider: Boolean = true
     ): Game? {
-        val filePath = uri.toString()
+        val filePath = if (uri.scheme == "file") {
+            uri.path ?: uri.toString()
+        } else {
+            uri.toString()
+        }
         if (!GameMetadata.getIsValid(filePath)) {
             return null
         }
@@ -272,15 +348,26 @@ object GameHelper {
 
         var name = GameMetadata.getTitle(filePath)
 
-        // If the game's title field is empty, use the filename.
-        if (name.isEmpty()) {
-            name = FileUtil.getFilename(uri)
+        // If the game's title field is empty, use the filename or directory name.
+        if (name.isEmpty() || name == "main") {
+            if (uri.scheme == "file") {
+                val f = File(filePath)
+                val parent = f.parentFile
+                name = if (parent?.name == "exefs") {
+                    parent.parentFile?.name ?: FileUtil.getFilename(uri)
+                } else {
+                    parent?.name ?: FileUtil.getFilename(uri)
+                }
+            } else {
+                name = FileUtil.getFilename(uri)
+            }
         }
         var programId = GameMetadata.getProgramId(filePath)
 
         // If the game's ID field is empty, use the filename without extension.
-        if (programId.isEmpty()) {
-            programId = name.substring(0, name.lastIndexOf("."))
+        if (programId.isEmpty() || programId == "0") {
+            val dotIndex = name.lastIndexOf(".")
+            programId = if (dotIndex != -1) name.substring(0, dotIndex) else name
         }
 
         val newGame = Game(

@@ -6,6 +6,7 @@ package org.yuzu.yuzu_emu.utils
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.documentfile.provider.DocumentFile
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentManager
 import org.yuzu.yuzu_emu.NativeLibrary
@@ -395,5 +396,162 @@ object InstallableActions {
 
             return@newInstance activity.getString(R.string.user_data_import_success)
         }.show(fragmentManager, ProgressDialogFragment.TAG)
+    }
+
+    fun importRomFolder(
+        activity: FragmentActivity,
+        fragmentManager: FragmentManager,
+        gamesViewModel: GamesViewModel,
+        result: Uri
+    ) {
+        val userDirectory = DirectoryInitialization.userDirectory
+        if (userDirectory == null) {
+            Toast.makeText(
+                activity.applicationContext,
+                R.string.fatal_error,
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        val rootDoc = DocumentFile.fromTreeUri(activity, result)
+        if (rootDoc == null || !rootDoc.isDirectory) {
+            MessageDialogFragment.newInstance(
+                activity,
+                titleId = R.string.invalid_directory,
+                descriptionId = R.string.invalid_directory_description
+            ).show(fragmentManager, MessageDialogFragment.TAG)
+            return
+        }
+
+        val gameFolder = findRomFolder(rootDoc)
+        if (gameFolder == null) {
+            MessageDialogFragment.newInstance(
+                activity,
+                titleId = R.string.invalid_directory,
+                descriptionId = R.string.import_rom_folder_error
+            ).show(fragmentManager, MessageDialogFragment.TAG)
+            return
+        }
+
+        val gamesDir = File(userDirectory, "games")
+        gamesDir.mkdirs()
+
+        val baseFolderName = (gameFolder.name ?: "imported_game").trim()
+        var targetDir = File(gamesDir, baseFolderName)
+        var counter = 1
+        while (targetDir.exists()) {
+            targetDir = File(gamesDir, "${baseFolderName}_$counter")
+            counter++
+        }
+
+        val finalTargetDir = targetDir
+
+        ProgressDialogFragment.newInstance(
+            activity,
+            R.string.importing_rom_folder,
+            true
+        ) { progressCallback, _ ->
+            var totalFiles = 0L
+            fun countFiles(doc: DocumentFile) {
+                doc.listFiles().forEach {
+                    if (it.isDirectory) {
+                        countFiles(it)
+                    } else {
+                        totalFiles++
+                    }
+                }
+            }
+            countFiles(gameFolder)
+
+            var copiedFiles = 0L
+            var cancelled = false
+
+            fun copyRecursively(src: DocumentFile, dest: File): Boolean {
+                if (cancelled) return false
+                if (!dest.exists()) {
+                    dest.mkdirs()
+                }
+
+                for (child in src.listFiles()) {
+                    if (cancelled) return false
+                    val destChild = File(dest, child.name ?: "file")
+                    if (child.isDirectory) {
+                        if (!copyRecursively(child, destChild)) {
+                            return false
+                        }
+                    } else {
+                        if (progressCallback.invoke(totalFiles, copiedFiles)) {
+                            cancelled = true
+                            return false
+                        }
+
+                        val inputStream = runCatching {
+                            activity.contentResolver.openInputStream(child.uri)
+                        }.getOrNull()
+
+                        if (inputStream != null) {
+                            try {
+                                BufferedInputStream(inputStream).use { bis ->
+                                    if (!destChild.exists()) {
+                                        destChild.createNewFile()
+                                    }
+                                    BufferedOutputStream(destChild.outputStream()).use { bos ->
+                                        val buffer = ByteArray(65536)
+                                        var bytesRead: Int
+                                        while (bis.read(buffer).also { bytesRead = it } != -1) {
+                                            bos.write(buffer, 0, bytesRead)
+                                        }
+                                    }
+                                }
+                            } catch (_: Exception) {
+                                cancelled = true
+                                return false
+                            }
+                        }
+                        copiedFiles++
+                    }
+                }
+                return true
+            }
+
+            val success = copyRecursively(gameFolder, finalTargetDir)
+            if (!success || cancelled) {
+                finalTargetDir.deleteRecursively()
+                return@newInstance if (cancelled) {
+                    activity.getString(R.string.import_failed)
+                } else {
+                    MessageDialogFragment.newInstance(
+                        activity,
+                        titleId = R.string.import_failed,
+                        descriptionId = R.string.import_rom_folder_error
+                    )
+                }
+            }
+
+            gamesViewModel.reloadGames(true)
+            return@newInstance activity.getString(R.string.import_rom_folder_success)
+        }.show(fragmentManager, ProgressDialogFragment.TAG)
+    }
+
+    private fun findRomFolder(dir: DocumentFile): DocumentFile? {
+        fun isGameDir(d: DocumentFile): Boolean {
+            val children = d.listFiles()
+            val hasExefs = children.any { it.isDirectory && it.name.equals("exefs", ignoreCase = true) }
+            val hasMain = children.any { it.isFile && it.name.equals("main", ignoreCase = true) }
+            val hasNpdm = children.any { it.isFile && it.name.equals("main.npdm", ignoreCase = true) }
+            return hasExefs || (hasMain && hasNpdm)
+        }
+
+        if (isGameDir(dir)) {
+            return dir
+        }
+
+        for (child in dir.listFiles()) {
+            if (child.isDirectory && isGameDir(child)) {
+                return child
+            }
+        }
+        return null
     }
 }

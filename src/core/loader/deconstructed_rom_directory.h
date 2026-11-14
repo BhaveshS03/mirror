@@ -49,11 +49,14 @@ public:
     ResultStatus ReadIcon(std::vector<u8>& out_buffer) override;
     ResultStatus ReadProgramId(u64& out_program_id) override;
     ResultStatus ReadTitle(std::string& title) override;
+    ResultStatus ReadControlData(FileSys::NACP& control) override;
     bool IsRomFSUpdatable() const override;
 
     ResultStatus ReadNSOModules(Modules& out_modules) override;
 
 private:
+    void Initialize();
+
     FileSys::ProgramMetadata metadata;
     FileSys::VirtualFile romfs;
     FileSys::VirtualDir dir;

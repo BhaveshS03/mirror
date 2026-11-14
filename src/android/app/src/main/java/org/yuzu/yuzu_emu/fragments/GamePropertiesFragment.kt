@@ -531,6 +531,47 @@ class GamePropertiesFragment : Fragment() {
                         )
                     )
                 }
+                val gameFile = File(args.game.path)
+                val isImportedGame = !args.game.path.startsWith("content://") &&
+                    DirectoryInitialization.userDirectory?.let { gameFile.absolutePath.startsWith(File(it, "games").absolutePath) } == true
+
+                if (isImportedGame) {
+                    add(
+                        SubmenuProperty(
+                            R.string.delete_imported_game,
+                            R.string.delete_imported_game_description,
+                            R.drawable.ic_delete,
+                            action = {
+                                MessageDialogFragment.newInstance(
+                                    requireActivity(),
+                                    titleId = R.string.delete_imported_game,
+                                    descriptionString = getString(
+                                        R.string.delete_imported_game_confirmation,
+                                        args.game.title
+                                    ),
+                                    positiveAction = {
+                                        val folderToDelete = if (gameFile.name == "main") {
+                                            val parent = gameFile.parentFile
+                                            if (parent?.name == "exefs") parent.parentFile else parent
+                                        } else {
+                                            gameFile.parentFile
+                                        }
+                                        if (folderToDelete != null && folderToDelete.exists()) {
+                                            folderToDelete.deleteRecursively()
+                                            Toast.makeText(
+                                                YuzuApplication.appContext,
+                                                R.string.game_deleted_success,
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                            gamesViewModel.reloadGames(true)
+                                            requireActivity().onBackPressedDispatcher.onBackPressed()
+                                        }
+                                    }
+                                ).show(parentFragmentManager, MessageDialogFragment.TAG)
+                            }
+                        )
+                    )
+                }
             }
         }
         binding.listProperties.apply {

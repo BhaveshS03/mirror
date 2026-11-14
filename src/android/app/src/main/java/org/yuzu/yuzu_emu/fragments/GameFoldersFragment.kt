@@ -26,6 +26,7 @@ import org.yuzu.yuzu_emu.model.DirectoryType
 import org.yuzu.yuzu_emu.model.GameDir
 import org.yuzu.yuzu_emu.model.GamesViewModel
 import org.yuzu.yuzu_emu.model.HomeViewModel
+import org.yuzu.yuzu_emu.utils.InstallableActions
 import org.yuzu.yuzu_emu.utils.ViewUtils.updateMargins
 import org.yuzu.yuzu_emu.utils.collect
 
@@ -47,6 +48,18 @@ class GameFoldersFragment : Fragment() {
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { result ->
             if (result != null) {
                 processExternalContentDir(result)
+            }
+        }
+
+    private val importRomFolderLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { result ->
+            if (result != null) {
+                InstallableActions.importRomFolder(
+                    activity = requireActivity(),
+                    fragmentManager = parentFragmentManager,
+                    gamesViewModel = gamesViewModel,
+                    result = result
+                )
             }
         }
 
@@ -92,7 +105,8 @@ class GameFoldersFragment : Fragment() {
             // Show a model to choose between Game and External Content
             val options = arrayOf(
                 getString(R.string.games),
-                getString(R.string.external_content)
+                getString(R.string.external_content),
+                getString(R.string.import_rom_folder)
             )
 
             MaterialAlertDialogBuilder(requireContext())
@@ -104,6 +118,9 @@ class GameFoldersFragment : Fragment() {
                         }
                         1 -> { // External Content Folder
                             getExternalContentDirectory.launch(null)
+                        }
+                        2 -> { // Import Game Folder
+                            importRomFolderLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).data)
                         }
                     }
                 }

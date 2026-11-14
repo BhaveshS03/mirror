@@ -1,0 +1,174 @@
+name: Android PGO Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      flavor:
+        description: 'Build Flavor'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - optimized
+          - standard
+          - legacy
+      pgo_mode:
+        description: 'PGO Mode'
+        required: true
+        default: 'pgo-use'
+        type: choice
+        options:
+          - pgo-use
+          - pgo-generate
+      profile_url:
+        description: 'PGO Profile URL (for pgo-use)'
+        required: false
+        default: 'https://raw.githubusercontent.com/Eden-CI/PGO/main/eden.profdata'
+        type: string
+      nightly:
+        description: 'Nightly build flag'
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '.forgejo/**'
+      - '.reuse/**'
+  pull_request:
+    branches:
+      - master
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '.forgejo/**'
+      - '.reuse/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    name: Build Android (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [optimized, standard, legacy]
+    if: |
+      github.event_name != 'workflow_dispatch' && (matrix.target == 'optimized' || matrix.target == 'standard') ||
+      github.event_name == 'workflow_dispatch' && (inputs.flavor == 'all' && matrix.target != 'legacy' || inputs.flavor == matrix.target)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android NDK (r30)
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r30
+          link-to-sdk: true
+
+      - name: Set up CMake 3.31.6
+        run: |
+          CMAKE_VERSION="3.31.6"
+          CMAKE_DIR="${ANDROID_SDK_ROOT}/cmake/${CMAKE_VERSION}"
+          if [ ! -f "${CMAKE_DIR}/bin/cmake" ]; then
+            echo "Installing Kitware CMake ${CMAKE_VERSION}..."
+            mkdir -p "${CMAKE_DIR}"
+            curl -fSL "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz" | tar -xz --strip-components=1 -C "${CMAKE_DIR}"
+          fi
+          echo "${CMAKE_DIR}/bin" >> $GITHUB_PATH
+
+      - name: Install Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ccache ninja-build
+
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-eden-android-ccache-${{ matrix.target }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-eden-android-ccache-${{ matrix.target }}-
+            ${{ runner.os }}-eden-android-ccache-
+
+      - name: Resolve PGO Configuration
+        id: pgo-config
+        run: |
+          PGO_MODE="${{ github.event.inputs.pgo_mode || 'pgo-use' }}"
+          PROFILE_URL="${{ github.event.inputs.profile_url || 'https://raw.githubusercontent.com/Eden-CI/PGO/main/eden.profdata' }}"
+          PGO_ARGS=""
+          SUFFIX=""
+
+          if [ "$PGO_MODE" = "pgo-use" ]; then
+            PROFILE_FILE="${GITHUB_WORKSPACE}/eden.profdata"
+            if [ -f "$PROFILE_FILE" ]; then
+              echo "Using repository profile: ${PROFILE_FILE}"
+            elif [ -n "$PROFILE_URL" ]; then
+              echo "Downloading PGO profile from: ${PROFILE_URL}"
+              if curl -fSL --retry 3 --connect-timeout 30 "$PROFILE_URL" -o "$PROFILE_FILE"; then
+                echo "Profile downloaded successfully ($(du -h "$PROFILE_FILE" | cut -f1))"
+              else
+                echo "::warning::Failed to download PGO profile. Building without profile data."
+                PROFILE_FILE=""
+              fi
+            fi
+
+            if [ -n "$PROFILE_FILE" ] && [ -f "$PROFILE_FILE" ]; then
+              PGO_ARGS="-p ${PROFILE_FILE}"
+              SUFFIX="-pgo"
+            fi
+          elif [ "$PGO_MODE" = "pgo-generate" ]; then
+            echo "Building with PGO instrumentation generation"
+            PGO_ARGS="--pgo-generate"
+            SUFFIX="-instrumented"
+          fi
+
+          echo "pgo_args=${PGO_ARGS}" >> $GITHUB_OUTPUT
+          echo "suffix=${SUFFIX}" >> $GITHUB_OUTPUT
+
+      - name: Build Android (${{ matrix.target }})
+        env:
+          CCACHE: "true"
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          NIGHTLY: ${{ github.event.inputs.nightly || false }}
+        run: |
+          chmod +x ./.ci/android/build.sh
+          ./.ci/android/build.sh \
+            -t ${{ matrix.target }} \
+            -b Release \
+            ${{ steps.pgo-config.outputs.pgo_args }}
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: eden-android-${{ matrix.target }}${{ steps.pgo-config.outputs.suffix }}
+          path: |
+            artifacts/*.apk
+            artifacts/*.aab
+          if-no-files-found: error
+
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.apk
+            artifacts/*.aab

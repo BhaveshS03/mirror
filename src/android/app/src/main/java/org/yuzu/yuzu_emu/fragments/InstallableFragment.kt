@@ -3,6 +3,7 @@
 
 package org.yuzu.yuzu_emu.fragments
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -131,6 +132,11 @@ class InstallableFragment : Fragment() {
                 install = { installGameUpdateLauncher.launch(arrayOf("*/*")) }
             ),
             Installable(
+                R.string.import_rom_folder,
+                R.string.import_rom_folder_description,
+                install = { importRomFolderLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).data) }
+            ),
+            Installable(
                 R.string.install_firmware,
                 R.string.install_firmware_description,
                 install = { getFirmwareLauncher.launch(arrayOf("application/zip")) }
@@ -185,6 +191,18 @@ class InstallableFragment : Fragment() {
             binding.listInstallables.updatePadding(bottom = barInsets.bottom)
 
             windowInsets
+        }
+
+    private val importRomFolderLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { result ->
+            if (result != null) {
+                InstallableActions.importRomFolder(
+                    activity = requireActivity(),
+                    fragmentManager = parentFragmentManager,
+                    gamesViewModel = gamesViewModel,
+                    result = result
+                )
+            }
         }
 
     private val getProdKeyLauncher =

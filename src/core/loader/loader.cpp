@@ -137,11 +137,11 @@ FileType IdentifyFile(FileSys::VirtualFile file) {
         return *nax_type;
     } else if (const auto kip_type = IdentifyFileLoader<AppLoader_KIP>(file)) {
         return *kip_type;
-    } else if (const auto nso_type = IdentifyFileLoader<AppLoader_NSO>(file)) {
-        return *nso_type;
     } else if (const auto romdir_type =
                    IdentifyFileLoader<AppLoader_DeconstructedRomDirectory>(file)) {
         return *romdir_type;
+    } else if (const auto nso_type = IdentifyFileLoader<AppLoader_NSO>(file)) {
+        return *nso_type;
     } else {
         return FileType::Unknown;
     }

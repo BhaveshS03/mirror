@@ -97,6 +97,18 @@ android {
                     ))
                 }
 
+                val pgoProfile = project.findProperty("PGO_PROFILE") as String?
+                if (!pgoProfile.isNullOrEmpty()) {
+                    arguments.addAll(listOf(
+                        "-DENABLE_PGO_USE=ON",
+                        "-DPGO_PROFILE_FILE=$pgoProfile"
+                    ))
+                }
+                val pgoGenerate = project.findProperty("PGO_GENERATE") as String?
+                if (pgoGenerate == "true" || pgoGenerate == "ON") {
+                    arguments.add("-DENABLE_PGO_GENERATE=ON")
+                }
+
                 abiFilters("arm64-v8a")
             }
         }
