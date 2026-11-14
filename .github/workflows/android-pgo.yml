@@ -53,16 +53,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  setup:
+    name: Setup Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.matrix.outputs.targets }}
+    steps:
+      - id: matrix
+        run: |
+          FLAVOR="${{ inputs.flavor }}"
+          if [ -z "$FLAVOR" ] || [ "$FLAVOR" = "all" ]; then
+            echo 'targets=["optimized", "standard"]' >> $GITHUB_OUTPUT
+          else
+            echo "targets=[\"$FLAVOR\"]" >> $GITHUB_OUTPUT
+          fi
+
   build-android:
     name: Build Android (${{ matrix.target }})
+    needs: setup
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target: [optimized, standard, legacy]
-    if: |
-      github.event_name != 'workflow_dispatch' && (matrix.target == 'optimized' || matrix.target == 'standard') ||
-      github.event_name == 'workflow_dispatch' && (inputs.flavor == 'all' && matrix.target != 'legacy' || inputs.flavor == matrix.target)
+        target: ${{ fromJson(needs.setup.outputs.targets) }}
 
     steps:
       - name: Checkout repository
@@ -111,8 +124,8 @@ jobs:
       - name: Resolve PGO Configuration
         id: pgo-config
         run: |
-          PGO_MODE="${{ github.event.inputs.pgo_mode || 'pgo-use' }}"
-          PROFILE_URL="${{ github.event.inputs.profile_url || 'https://raw.githubusercontent.com/Eden-CI/PGO/main/eden.profdata' }}"
+          PGO_MODE="${{ inputs.pgo_mode || 'pgo-use' }}"
+          PROFILE_URL="${{ inputs.profile_url || 'https://raw.githubusercontent.com/Eden-CI/PGO/main/eden.profdata' }}"
           PGO_ARGS=""
           SUFFIX=""
 
@@ -148,7 +161,7 @@ jobs:
           CCACHE: "true"
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
-          NIGHTLY: ${{ github.event.inputs.nightly || false }}
+          NIGHTLY: ${{ inputs.nightly || false }}
         run: |
           chmod +x ./.ci/android/build.sh
           ./.ci/android/build.sh \
