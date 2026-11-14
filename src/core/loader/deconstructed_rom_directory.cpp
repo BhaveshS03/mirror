@@ -168,16 +168,13 @@ void AppLoader_DeconstructedRomDirectory::Initialize() {
         }
     }
 
-    // RomFS
-    auto romfs_dir = dir->GetSubdirectory("romfs");
+    // RomFS (a loose romfs/ directory is built lazily in ReadRomFS, as it walks every file)
+    romfs_dir = dir->GetSubdirectory("romfs");
     if (!romfs_dir && dir->GetParentDirectory()) {
         romfs_dir = dir->GetParentDirectory()->GetSubdirectory("romfs");
     }
-    if (romfs_dir != nullptr) {
-        romfs = FileSys::CreateRomFS(romfs_dir);
-    }
 
-    if (romfs == nullptr) {
+    if (romfs_dir == nullptr) {
         auto romfs_file = dir->GetFile("romfs.bin");
         if (!romfs_file && dir->GetParentDirectory()) {
             romfs_file = dir->GetParentDirectory()->GetFile("romfs.bin");
@@ -374,6 +371,9 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
 }
 
 ResultStatus AppLoader_DeconstructedRomDirectory::ReadRomFS(FileSys::VirtualFile& out_dir) {
+    if (romfs == nullptr && romfs_dir != nullptr) {
+        romfs = FileSys::CreateRomFS(romfs_dir);
+    }
     if (romfs == nullptr) {
         return ResultStatus::ErrorNoRomFS;
     }
@@ -435,7 +435,7 @@ ResultStatus AppLoader_DeconstructedRomDirectory::ReadControlData(FileSys::NACP&
 }
 
 bool AppLoader_DeconstructedRomDirectory::IsRomFSUpdatable() const {
-    return romfs != nullptr;
+    return romfs != nullptr || romfs_dir != nullptr;
 }
 
 ResultStatus AppLoader_DeconstructedRomDirectory::ReadNSOModules(Modules& out_modules) {
