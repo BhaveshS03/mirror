@@ -550,6 +550,16 @@ object FileUtil {
     fun Uri.asDocumentFile(): DocumentFile? =
         DocumentFile.fromSingleUri(YuzuApplication.appContext, this)
 
+    // Game paths may be content:// URIs or raw filesystem paths (loose exefs/romfs games)
+    fun gamePathExists(path: String): Boolean {
+        val uri = path.toUri()
+        return when (uri.scheme) {
+            null -> File(path).exists()
+            "file" -> File(uri.path ?: "").exists()
+            else -> DocumentFile.fromSingleUri(context, uri)?.exists() == true
+        }
+    }
+
     fun hasAllFilesPermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Environment.isExternalStorageManager()
