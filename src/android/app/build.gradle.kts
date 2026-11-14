@@ -197,7 +197,7 @@ android {
             manifestPlaceholders += mapOf("appNameBase" to "Eden")
             dimension = "version"
             isDefault = true
-            minSdk = 33
+            minSdk = 28
 
             resValue("string", "app_name_suffixed", "Eden")
 
@@ -209,7 +209,7 @@ android {
         create("genshinSpoof") {
             manifestPlaceholders += mapOf("appNameBase" to "Eden Optimized")
             dimension = "version"
-            minSdk = 35
+            minSdk = 28
             resValue("string", "app_name_suffixed", "Eden Optimized")
             applicationId = "com.miHoYo.Yuanshen"
 
