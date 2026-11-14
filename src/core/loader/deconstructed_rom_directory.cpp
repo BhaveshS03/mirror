@@ -363,6 +363,11 @@ AppLoader_DeconstructedRomDirectory::LoadResult AppLoader_DeconstructedRomDirect
         LOG_DEBUG(Loader, "loaded module {} @ {:#x}", module, load_addr);
     }
 
+    system.GetFileSystemController().RegisterProcess(
+        process.GetProcessId(), metadata.GetTitleID(),
+        std::make_shared<FileSys::RomFSFactory>(*this, system.GetContentProvider(),
+                                                system.GetFileSystemController()));
+
     is_loaded = true;
     return {ResultStatus::Success,
             LoadParameters{metadata.GetMainThreadPriority(), metadata.GetMainThreadStackSize()}};
