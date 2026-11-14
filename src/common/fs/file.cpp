@@ -390,7 +390,13 @@ void IOFile::Open(const fs::path& path, FileAccessMode mode, FileType type, File
             }
         }
     } else {
-        file = std::fopen(path.c_str(), AccessModeToStr(mode, type));
+        // Loose game files are read through plain paths, map them like on other unix systems
+        if (type == FileType::BinaryFile && mode == FileAccessMode::Read) {
+            PlatformMapReadOnly(*this, path.c_str());
+        }
+        if (mmap_fd == -1) {
+            file = std::fopen(path.c_str(), AccessModeToStr(mode, type));
+        }
     }
 #elif defined(__HAIKU__) || defined(__managarm__) || defined(__OPENORBIS__) || defined(__APPLE__)
     file = std::fopen(path.c_str(), AccessModeToStr(mode, type));
