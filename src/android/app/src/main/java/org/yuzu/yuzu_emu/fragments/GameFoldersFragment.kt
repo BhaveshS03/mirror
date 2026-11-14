@@ -26,6 +26,7 @@ import org.yuzu.yuzu_emu.model.DirectoryType
 import org.yuzu.yuzu_emu.model.GameDir
 import org.yuzu.yuzu_emu.model.GamesViewModel
 import org.yuzu.yuzu_emu.model.HomeViewModel
+import org.yuzu.yuzu_emu.utils.FileUtil
 import org.yuzu.yuzu_emu.utils.InstallableActions
 import org.yuzu.yuzu_emu.utils.ViewUtils.updateMargins
 import org.yuzu.yuzu_emu.utils.collect
@@ -113,13 +114,13 @@ class GameFoldersFragment : Fragment() {
                 .setTitle(R.string.add_folders)
                 .setItems(options) { _, which ->
                     when (which) {
-                        0 -> { // Game Folder
-                            getGamesDirectory.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).data)
+                        0 -> { // Game Folder (scans loose romfs/exefs & containers in-place)
+                            launchGamesDirectoryPicker()
                         }
                         1 -> { // External Content Folder
                             getExternalContentDirectory.launch(null)
                         }
-                        2 -> { // Import Game Folder
+                        2 -> { // Import Game Folder (copy to internal)
                             importRomFolderLauncher.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).data)
                         }
                     }
@@ -128,6 +129,23 @@ class GameFoldersFragment : Fragment() {
         }
 
         setInsets()
+    }
+
+    private fun launchGamesDirectoryPicker() {
+        if (!FileUtil.hasAllFilesPermission()) {
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.all_files_permission_required)
+                .setMessage(R.string.all_files_permission_required)
+                .setPositiveButton(R.string.grant_permission) { _, _ ->
+                    FileUtil.requestAllFilesPermission(requireActivity())
+                }
+                .setNegativeButton(R.string.cancel) { _, _ ->
+                    getGamesDirectory.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).data)
+                }
+                .show()
+            return
+        }
+        getGamesDirectory.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).data)
     }
 
     override fun onStop() {

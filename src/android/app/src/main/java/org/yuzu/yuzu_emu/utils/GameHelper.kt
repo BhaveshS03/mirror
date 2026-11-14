@@ -63,10 +63,11 @@ object GameHelper {
         val badDirs = mutableListOf<Int>()
         gameDirs.forEachIndexed { index: Int, gameDir: GameDir ->
             val gameDirUri = gameDir.uriString.toUri()
-            val localDir = if (gameDirUri.scheme == "file") {
-                File(gameDirUri.path ?: "")
-            } else {
-                File(gameDir.uriString)
+            val realPath = PathUtil.getPathFromUri(gameDirUri)
+            val localDir = when {
+                gameDirUri.scheme == "file" -> File(gameDirUri.path ?: "")
+                realPath != null -> File(realPath)
+                else -> File(gameDir.uriString)
             }
             if (localDir.exists() && localDir.isDirectory) {
                 scanLocalGameDirectory(localDir, games, gamesByProgramId)
@@ -160,6 +161,26 @@ object GameHelper {
 
         files.forEach {
             if (it.isDirectory) {
+                val dirRealPath = PathUtil.getPathFromUri(it.uri)
+                if (dirRealPath != null) {
+                    val entryDir = File(dirRealPath)
+                    val mainFile = when {
+                        File(entryDir, "main").exists() -> File(entryDir, "main")
+                        File(entryDir, "exefs/main").exists() -> File(entryDir, "exefs/main")
+                        else -> null
+                    }
+                    if (mainFile != null) {
+                        val game = getGame(Uri.fromFile(mainFile), addedToLibrary = true, registerFilesystemProvider = false)
+                        if (game != null) {
+                            games.add(game)
+                            if (game.programId != "0") {
+                                gamesByProgramId[game.programId] = game
+                            }
+                            return@forEach
+                        }
+                    }
+                }
+
                 addGamesRecursive(
                     games,
                     gamesByProgramId,
@@ -275,6 +296,23 @@ object GameHelper {
             return
         }
 
+        // Check if directory itself is a loose game
+        val selfMain = when {
+            File(directory, "main").exists() -> File(directory, "main")
+            File(directory, "exefs/main").exists() -> File(directory, "exefs/main")
+            else -> null
+        }
+        if (selfMain != null) {
+            val game = getGame(Uri.fromFile(selfMain), addedToLibrary = true, registerFilesystemProvider = false)
+            if (game != null) {
+                games.add(game)
+                if (game.programId != "0") {
+                    gamesByProgramId[game.programId] = game
+                }
+                return
+            }
+        }
+
         val entries = directory.listFiles() ?: return
         for (entry in entries) {
             if (entry.isDirectory) {
@@ -302,6 +340,17 @@ object GameHelper {
                             }
                             if (subMain != null) {
                                 val game = getGame(Uri.fromFile(subMain), addedToLibrary = true, registerFilesystemProvider = false)
+                                if (game != null) {
+                                    games.add(game)
+                                    if (game.programId != "0") {
+                                        gamesByProgramId[game.programId] = game
+                                    }
+                                }
+                            }
+                        } else {
+                            val subExt = subEntry.extension.lowercase()
+                            if (Game.extensions.contains(subExt)) {
+                                val game = getGame(Uri.fromFile(subEntry), addedToLibrary = true, registerFilesystemProvider = false)
                                 if (game != null) {
                                     games.add(game)
                                     if (game.programId != "0") {
